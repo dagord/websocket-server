@@ -1,9 +1,34 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+#  websocket_functions_server.py
+#
+#  Copyright 2016 Matteo D'Agord <matteo.dagord@gmail.com>
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#
+
 '''
-funzioni relative all'interazione col browser
+This module extends base websocket module and enables communication with
+browsers/users
 '''
+
 import websocket_functions_device_conference
-from conference.models import ConferenceCommenti, ConferenceRisposte, ConferenceGiaRisposte
-import json
+from conference.models import (
+    ConferenceCommenti, ConferenceRisposte, ConferenceGiaRisposte)
 
 
 def send_message(connessione, message_content_to_send, recipient="browser"):
@@ -25,7 +50,8 @@ def send_message(connessione, message_content_to_send, recipient="browser"):
         message['message_recipient'] = message_recipient
 
         for conn in connessione.connections:
-            if (conn.gruppo == connessione.gruppo or conn.amministratore == 1) and conn.tipologia == "browser":
+            if ((conn.gruppo == connessione.gruppo or conn.amministratore == 1)
+                and conn.tipologia == "browser"):
                 connessione.send_composed_message(conn, message)
 
     elif recipient == "browser_conference":
@@ -50,7 +76,7 @@ def send_message(connessione, message_content_to_send, recipient="browser"):
         if 'message' not in message_content_to_send:
             message_content_to_send['message'] = ""
 
-        # richiede il risultato a un q&a: restituisce sia al device che ai browser
+        # gets question results, and returns them both to players and to browsers
         if message_content_to_send['message'] == "request_answer_results":
             domande_gia_risposte = ConferenceGiaRisposte.objects.filter(
                 id_playlist_id=int(connessione.playlist_id),
@@ -63,23 +89,28 @@ def send_message(connessione, message_content_to_send, recipient="browser"):
                 domande_gia_risposte.indice = message_content_to_send['json']['index']
                 domande_gia_risposte.save()
 
-            array_risposte = websocket_functions_device_conference.recover_answers(connessione, message_content_to_send['json']['index'])
+            array_risposte = websocket_functions_device_conference.recover_answers(
+                connessione, message_content_to_send['json']['index'])
 
             content_to_send = {}
             content_to_send['index'] = message_content_to_send['json']['index']
             content_to_send['results'] = array_risposte
 
-            message_content = compose_message("display_answer_results", content_to_send)
-            # invia i risultati alla conference box
+            message_content = compose_message("display_answer_results",
+                                              content_to_send)
+            # send results to player (conference box)
             websocket_functions_device_conference.send_message(connessione, message_content)
-            # invia i risultati al browser
+            # send results to browsers (users)
             send_message(connessione, message_content, "browser_conference")
 
         elif message_content_to_send['message'] == "delete_comments":
-            commenti = ConferenceCommenti.objects.filter(id_playlist_id=connessione.playlist_id, activation_key=connessione.device_id)
+            commenti = ConferenceCommenti.objects.filter(
+                id_playlist_id=connessione.playlist_id,
+                activation_key=connessione.device_id)
             commenti.delete()
             content_to_send = {}
-            message_content = compose_message("comments_deleted", content_to_send)
+            message_content = compose_message("comments_deleted",
+                                              content_to_send)
             send_message(connessione, message_content, "browser_conference")
 
         else:
@@ -97,14 +128,16 @@ def send_message(connessione, message_content_to_send, recipient="browser"):
             message['message_sender'] = message_sender
             message['message_recipient'] = message_recipient
 
-            # print message_content_to_send
-            # current_index_playlist[connessione.playlist_id, connessione.device_id] = message_content_to_send['json']['index']
             if message_content_to_send['message'] == "set_index":
-                connessione.current_index_playlist[connessione.playlist_id, connessione.device_id] = message_content_to_send['json']['index']
+                connessione.current_index_playlist[connessione.playlist_id,
+                    connessione.device_id] = message_content_to_send['json']['index']
 
             for conn in connessione.connections:
                 try:
-                    if conn.gruppo == connessione.gruppo and str(conn.playlist_id) == str(connessione.playlist_id) and str(conn.device_id) == str(connessione.device_id) and conn.tipologia == "browser_conference":
+                    if (conn.gruppo == connessione.gruppo
+                    and str(conn.playlist_id) == str(connessione.playlist_id)
+                    and str(conn.device_id) == str(connessione.device_id)
+                    and conn.tipologia == "browser_conference"):
 
                         connessione.send_composed_message(conn, message)
                 except:
@@ -134,8 +167,7 @@ def send_direct_message(connessione, message_content_to_send, recipient="browser
 
 
 def compose_message(text, content):
-    # compone il contenuto in formato json
-    # utilizzando i parametri ricevuti
+    # compose results in json format
     message_content = {}
     message_content['type'] = "json"
     message_content['message'] = text

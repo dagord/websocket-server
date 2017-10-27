@@ -49,7 +49,6 @@ from django import db
 
 # imports libraries
 from urlparse import urlparse
-# import tornado.web
 import socket
 import json
 import time
@@ -76,28 +75,61 @@ log_enabled = True
 timeout_connection = 1800
 ping_interval = settings.PING_INTERVAL
 
-'''
-message_content['type'] indica il tipo di messaggio scambiato tra browser/server
-e client, e puo' essere uno di questi:
-command: usato per inviare comandi rapidi al client (es.: reboot, send report)
-message: usato per inivare una richiesta generica al client (es.: comunica lo status)
-json:    usato per inviare comandi complessi; deve essere usato in abbinato a
-         message_content['json'] che contiene il messaggio vero e proprio (es.
-         la nuova configurazione, playlist ecc.)
-confirm: usato dal client per comunicare al server l'avvenuta ricezione del
-         messaggio
-'''
+# message_content['type'] indicates the message exchanged type:
+# command: used to send short commands to player (eg. reboot, send report)
+# message: used to send generic request to player (eg. send status)
+# json:    used to send complex messages; message_content['json']
+#          that stores the actual message content (eg. configuration update,
+#          new playlist and so on)
+# confirm: used by the player as message receipt
+#
+# Example:
+# User (browser) "user_1_adzxzxc80789790" requests the status of device "1268688695"
+# {
+#     "message_content":{
+#         "message":"status",
+#         "type":"message"
+#     },
+#     "message_sender":{
+#         "id":"user_1_adzxzxc80789790",
+#         "type":"browser"
+#     },
+#     "message_recipient":{
+#         "id":"1268688695",
+#         "type":"device"
+#     }
+# }
+#
+# Device (player) "1268688695" responds to "user_1_adzxzxc80789790"
+# that it's currently playing gallery
+# {
+#     "message_content":{
+#         "message":"status",
+#         "type":"json",
+#         "json":{
+#             "playing":"gallery",
+#             "time":"10:30"
+#         }
+#     },
+#     "message_recipient":{
+#         "type":"browser",
+#         "id":"user_1_adzxzxc80789790"
+#     },
+#     "message_sender":{
+#         "type":"player",
+#         "id":"1268688695"
+#     }
+# }
 
-
-connected_devices = {}
+connected_devices = {}  # stores the currently connected players
 
 
 class WSHandler(WebSocketServerProtocol):
 
     connections = []
 
-    users_connessi_playlist = {}    # stores the number of users associated to a player/playlist
-    current_index_playlist = {}     # stores the current index for every player/playlist
+    users_connessi_playlist = {}    # stores the number of users associated to each player/playlist
+    current_index_playlist = {}     # stores the current index for each player/playlist
 
     def authenticate_connection(self, id):
 
@@ -142,7 +174,7 @@ class WSHandler(WebSocketServerProtocol):
         elif tipologia == "browser_conference":
             # parametro[0] = "user"
             # parametro[1] = playlist id
-            # parametro[2] = device activation key
+            # parametro[2] = player activation key
             # parametro[3] = browser session id
             try:
                 dispositivi = Dispositivi.objects.get(
@@ -174,8 +206,8 @@ class WSHandler(WebSocketServerProtocol):
             ammesso = True
             error_reason = ""
 
-            # check if client is authorized
-            # 1. client must be activated and not suspended
+            # check if player is authorized
+            # 1. player must be activated and not suspended
             dispositivi = Dispositivi.objects.filter(
                 attivato=1, sospeso=0, activation_key=id)
 
@@ -187,19 +219,20 @@ class WSHandler(WebSocketServerProtocol):
                 self.write_log(str(id)+": verifico le condizioni di accesso "
                             "(device "+ dispositivo.descrizione + ")...")
 
-            # 2. there must be no client already connected using the same id
+            # 2. there must be no player already connected using the same id
             for conn in self.connections:
                 if conn.tipologia[0:6] == "device" and str(conn.id) == id:
                     error_reason = "gia' connesso"
                     ammesso = False
 
-            # 3. client meets requirements: connection is authorized
+            # 3. player meets requirements: connection is authorized
             if ammesso:
                 gruppo_id = dispositivo.ugrp_id_group_id
                 self.device_pk = dispositivo.pk
                 self.device_id = id
                 self.gruppo = gruppo_id
-                # client type can "digital_signage" (default) or "conference_box"
+                # player type can be "digital_signage" or "conference_box",
+                # according to its usage
                 if dispositivo.usage_type == "digital_signage":
                     connected_devices[self.device_id] = time.time()
                     self.tipologia = tipologia
@@ -213,7 +246,7 @@ class WSHandler(WebSocketServerProtocol):
                 self.write_log(str(id) + ": regolarmente connesso al websocket :)")
                 return True
 
-            # the client is rejected: track down the event
+            # player is rejected: log the event
             else:
                 self.write_log(str(id) + ": non ammesso (%s) :(" % error_reason)
                 self.sendClose()
@@ -363,8 +396,8 @@ class WSHandler(WebSocketServerProtocol):
     def write_log(self, message):
         if log_enabled:
             print time.strftime('%d/%m/%y - %H:%M:%S | ' + str(message))
-            message_to_log = time.strftime('%d/%m/%y - %H:%M:%S | ') +
-                             str(message) + '\n'
+            message_to_log = (time.strftime('%d/%m/%y - %H:%M:%S | ') +
+                             str(message) + '\n')
             try:
                 file_log = open(current_directory + '/websocket.log', 'a')
                 file_log.write(message_to_log)
